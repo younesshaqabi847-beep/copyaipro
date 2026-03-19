@@ -713,7 +713,16 @@ select option{background:var(--card);}
 
     <!-- TRADUTTORE -->
     <div class="page" id="pg-traduttore">
-      <div class="ph"><h1>🌍 <em>Traduttore Culturale</em></h1><p>Adattamento culturale del copy per ogni mercato europeo</p></div>
+      <div class="ph"><h1>🌍 <em>Traduttore Culturale</em></h1><p>Adattamento culturale del copy per ogni mercato europeo · Powered by Claude AI</p></div>
+
+      <!-- API KEY BAR -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;">🔑 Anthropic API Key</span>
+        <input id="apiKeyInput" type="password" placeholder="sk-ant-api03-..." style="flex:1;min-width:220px;font-size:12px;font-family:monospace;letter-spacing:.5px;" oninput="saveApiKey(this.value)">
+        <button class="btn btn-p btn-sm" onclick="testApiKey()">✅ Connetti</button>
+        <div id="apiKeyStatus" style="font-size:11px;color:var(--muted);">Non connessa</div>
+      </div>
+
       <div class="trans-layout">
         <div class="trans-pane">
           <div class="trans-head">
@@ -1446,25 +1455,40 @@ function libEdit(i){var it=LIB_DATA[i];if(!it)return;go('genera');document.getEl
 function libDel(i){if(!confirm('Eliminare?'))return;LIB_DATA.splice(i,1);renderLib(LIB_DATA);toast('Eliminato','g');}
 
 // ═══ TRADUTTORE ══════════════════════════════════════════
-async function doTranslate(){
+async async function doTranslate(){
   var txt=document.getElementById('tInput').value.trim();
   if(!txt){toast('Inserisci il testo da tradurre!','w');return;}
+  var apiKey=(document.getElementById('apiKeyInput')||{}).value||window._ANTHROPIC_KEY||'';
   var from=document.getElementById('tFrom').value.replace(/[^\w\s]/g,'').trim();
   var to=document.getElementById('tTo').value.replace(/[^\w\s]/g,'').trim();
   var loader=document.getElementById('transLoader');loader.classList.add('on');
   var out=document.getElementById('tOut');
-  out.style.fontStyle='italic';out.style.color='var(--muted)';out.textContent='Traduzione in corso...';
+  out.style.fontStyle='italic';out.style.color='var(--muted)';out.textContent='Traduzione AI in corso...';
+  if(!apiKey){
+    loader.classList.remove('on');
+    out.style.fontStyle='normal';out.style.color='var(--red)';
+    out.textContent='⚠️ API Key mancante. Inserisci la tua Anthropic API Key nel campo in alto e riprova.';
+    toast('Inserisci la API Key! ⚠️','w');return;
+  }
   try{
-    var res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:600,messages:[{role:'user',content:'Traduci da '+from+' a '+to+' adattando culturalmente per vendere meglio nel marketplace '+to+'. Rispondi SOLO con il testo tradotto, niente altro: '+txt}]})});
+    var prompt='Sei un esperto traduttore e copywriter per marketplace digitali. '+
+      'Traduci il seguente testo da '+from+' a '+to+', adattando culturalmente il copy per vendere meglio nel mercato '+to+'. '+
+      'Mantieni il tono persuasivo e professionale. Rispondi SOLO con il testo tradotto, niente altro:\n\n'+txt;
+    var res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:prompt}]})
+    });
     var data=await res.json();
-    var reply=(data.content||[]).map(i=>i.text||'').join('');
+    if(data.error){throw new Error(data.error.message||'API error');}
+    var reply=(data.content||[]).map(function(i){return i.text||'';}).join('');
     out.style.fontStyle='normal';out.style.color='var(--text)';out.textContent=reply||txt;
-    loader.classList.remove('on');toast('Traduzione completata! 🌍','g');
+    loader.classList.remove('on');toast('Traduzione AI completata! 🌍','g');
   }catch(e){
-    var map={'inglese':'[EN] ','tedesco':'[DE] ','francese':'[FR] ','spagnolo':'[ES] ','olandese':'[NL] '};
-    var prefix=map[to.toLowerCase()]||'['+to+'] ';
-    out.style.fontStyle='normal';out.style.color='var(--text)';out.textContent=prefix+txt+' — adattato per il mercato '+to;
-    loader.classList.remove('on');toast('Traduzione completata! 🌍','g');
+    loader.classList.remove('on');
+    out.style.fontStyle='normal';out.style.color='var(--red)';
+    out.textContent='❌ Errore: '+e.message+'. Controlla la API Key e riprova.';
+    toast('Errore traduzione: '+e.message,'e');
   }
 }
 function resetTrad(){
@@ -1613,45 +1637,24 @@ function renderLdr(){
 }
 
 // ═══ PROFILO ═════════════════════════════════════════════
-
-function _applyPhoto(src) {
-  var imgHtml = '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">';
-  ['profAv','userAv','profImgPrev'].forEach(function(id){
-    var el = document.getElementById(id);
-    if (el) el.innerHTML = imgHtml;
-  });
-  window._profImg = src;
+function saveProfile(){
+  var name=document.getElementById('profNameIn').value||'Seller Pro';
+  document.getElementById('profNameDisp').textContent=name;
+  document.getElementById('tb-name').textContent=name;
+  try { localStorage.setItem('copyaipro_name', name); } catch(ex) {}
+  var savedPhoto = '';
+  try { savedPhoto = localStorage.getItem('copyaipro_photo')||''; } catch(ex) {}
+  if(savedPhoto){ applyProfilePhoto(savedPhoto); }
+  closeModal('profileModal');toast('Profilo salvato! ✅','g');
 }
-
-function loadProfImg(input) {
-  var f = input.files[0]; if (!f) return;
-  var r = new FileReader();
-  r.onload = function(e) { _applyPhoto(e.target.result); };
-  r.readAsDataURL(f);
-}
-
-function loadProfPhoto(inp) {
-  if (!inp.files || !inp.files[0]) return;
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    _applyPhoto(e.target.result);
-    try { localStorage.setItem('cap_photo', e.target.result); } catch(x) {}
-    toast('Foto profilo salvata! ✅', 'g');
-  };
-  reader.readAsDataURL(inp.files[0]);
-}
-
-function saveProfile() {
-  var name = document.getElementById('profNameIn').value || 'Seller Pro';
-  document.getElementById('profNameDisp').textContent = name;
-  document.getElementById('tb-name').textContent = name;
-  try { localStorage.setItem('cap_name', name); } catch(x) {}
-  if (window._profImg) {
-    _applyPhoto(window._profImg);
-    try { localStorage.setItem('cap_photo', window._profImg); } catch(x) {}
-  }
-  closeModal('profileModal');
-  toast('Profilo salvato! ✅', 'g');
+function loadProfImg(input){
+  var f=input.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(e){
+    window._profImg=e.target.result;
+    var p=document.getElementById('profImgPrev');
+    if(p)p.innerHTML='<img src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">';
+  };r.readAsDataURL(f);
 }
 
 // ═══ PLANS ═══════════════════════════════════════════════
@@ -1780,28 +1783,27 @@ function downloadFattura(){
   renderLib(LIB_DATA);
   buildCal();
   renderHomeRev();
-  // ── Ripristina foto e nome dal localStorage ──
-  (function(){
+  // Restore saved profile from localStorage — run immediately + on DOMContentLoaded
+  function restoreProfile(){
     try {
-      var ph = localStorage.getItem('cap_photo');
-      var nm = localStorage.getItem('cap_name');
-      if (ph) {
-        var imgHtml = '<img src="' + ph + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">';
-        ['profAv','userAv','profImgPrev'].forEach(function(id){
-          var el = document.getElementById(id); if(el) el.innerHTML = imgHtml;
-        });
-        window._profImg = ph;
-      }
-      if (nm) {
+      var savedPhoto = localStorage.getItem('copyaipro_photo');
+      var savedName  = localStorage.getItem('copyaipro_name');
+      if (savedPhoto) { applyProfilePhoto(savedPhoto); }
+      if (savedName)  {
         var nd = document.getElementById('profNameDisp');
         var tb = document.getElementById('tb-name');
         var ni = document.getElementById('profNameIn');
-        if(nd) nd.textContent = nm;
-        if(tb) tb.textContent = nm;
-        if(ni) ni.value = nm;
+        if(nd) nd.textContent = savedName;
+        if(tb) tb.textContent = savedName;
+        if(ni) ni.value = savedName;
       }
-    } catch(x) {}
-  })();
+    } catch(ex) {}
+  }
+  restoreProfile();
+  // Also fire on pageshow (covers back/forward cache)
+  window.addEventListener('pageshow', function(e){ restoreProfile(); });
+  // And on focus (covers tab switching)
+  window.addEventListener('focus', function(){ restoreProfile(); });
   // Set today's date in event modal
   var today=new Date();
   var d=today.getFullYear()+'-'+(today.getMonth()+1<10?'0':'')+(today.getMonth()+1)+'-'+(today.getDate()<10?'0':'')+today.getDate();
@@ -1916,10 +1918,75 @@ function filtRev(el, cat) {
 }
 
 
+function applyProfilePhoto(src) {
+  var img = '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">';
+  var els = ['profAv','userAv','profImgPrev'];
+  els.forEach(function(id){ var el=document.getElementById(id); if(el) el.innerHTML=img; });
+}
 
+function loadProfPhoto(inp) {
+  if (!inp.files || !inp.files[0]) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var src = e.target.result;
+    applyProfilePhoto(src);
+    try { localStorage.setItem('copyaipro_photo', src); } catch(ex) {}
+    toast('Foto profilo salvata! ✅', 'g');
+  };
+  reader.readAsDataURL(inp.files[0]);
+}
+
+
+function saveApiKey(val) {
+  window._ANTHROPIC_KEY = val.trim();
+  var st = document.getElementById('apiKeyStatus');
+  if (st) {
+    if (val.trim().startsWith('sk-ant-')) {
+      st.textContent = '🟡 Pronta — clicca Connetti';
+      st.style.color = 'var(--gold)';
+    } else if (val.trim()) {
+      st.textContent = '⚠️ Formato non valido';
+      st.style.color = 'var(--red)';
+    } else {
+      st.textContent = 'Non connessa';
+      st.style.color = 'var(--muted)';
+    }
+  }
+}
+
+async function testApiKey() {
+  var apiKey = (document.getElementById('apiKeyInput') || {}).value || '';
+  if (!apiKey) { toast('Inserisci prima la API Key!', 'w'); return; }
+  var st = document.getElementById('apiKeyStatus');
+  if (st) { st.textContent = 'Verifica in corso...'; st.style.color = 'var(--muted)'; }
+  toast('Verifica API Key...', 'i');
+  try {
+    var res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Hi' }]
+      })
+    });
+    var data = await res.json();
+    if (data.error) throw new Error(data.error.message);
+    window._ANTHROPIC_KEY = apiKey;
+    if (st) { st.textContent = '🟢 Connessa e attiva!'; st.style.color = 'var(--green)'; }
+    toast('API Key connessa! ✅ Ora il Traduttore usa Claude AI', 'g');
+  } catch (e) {
+    if (st) { st.textContent = '❌ Errore: ' + e.message; st.style.color = 'var(--red)'; }
+    toast('Errore API Key: ' + e.message, 'e');
+  }
+}
 
 })();
 </script>
 </body>
 </html>
-
